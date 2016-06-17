@@ -2,6 +2,7 @@ package netx
 
 import (
 	"io"
+	"io/ioutil"
 	"net"
 	"sync"
 	"testing"
@@ -12,6 +13,18 @@ import (
 )
 
 func TestSimulatedProxy(t *testing.T) {
+	originalCopyTimeout := copyTimeout
+	copyTimeout = 5 * time.Millisecond
+	defer func() {
+		copyTimeout = originalCopyTimeout
+	}()
+	data := make([]byte, 30000000)
+	for i := 0; i < len(data); i++ {
+		data[i] = 5
+	}
+
+	writeTimeout := copyTimeout * 25
+
 	_, fdc, err := fdcount.Matching("TCP")
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +33,7 @@ func TestSimulatedProxy(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	// Start "server"
-	ls, err := net.Listen("tcp", ":0")
+	ls, err := net.Listen("tcp4", ":0")
 	if !assert.NoError(t, err, "Server unable to listen") {
 		return
 	}
@@ -32,18 +45,20 @@ func TestSimulatedProxy(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		b := make([]byte, 5)
+		b := make([]byte, len(data))
 		_, err = io.ReadFull(conn, b)
 		if !assert.NoError(t, err, "Unable to read from proxy") {
 			return
 		}
 		_, err = conn.Write(b)
-		assert.NoError(t, err, "Unable to write to proxy")
+		assert.Error(t, err, "Writing to proxy should fail because client timed out on reading")
+		// Keep reading from the connection until the client closes it
+		io.Copy(ioutil.Discard, conn)
 		wg.Done()
 	}()
 
 	// Start "proxy"
-	lp, err := net.Listen("tcp", ":0")
+	lp, err := net.Listen("tcp4", ":0")
 	if !assert.NoError(t, err, "Proxy unable to listen") {
 		return
 	}
@@ -56,38 +71,53 @@ func TestSimulatedProxy(t *testing.T) {
 		}
 		defer in.Close()
 
-		out, err := net.DialTimeout("tcp", ls.Addr().String(), 250*time.Millisecond)
+		out, err := net.DialTimeout("tcp4", ls.Addr().String(), 250*time.Millisecond)
 		if !assert.NoError(t, err, "Proxy unable to dial server") {
 			return
 		}
 		defer out.Close()
 
-		errOut, errIn := BidiCopy(out, in, make([]byte, 32768), make([]byte, 32768))
+		errOut, errIn := BidiCopy(out, in, make([]byte, 32768), make([]byte, 32768), writeTimeout)
 		assert.NoError(t, errOut, "Error copying to server")
-		assert.NoError(t, errIn, "Error copying to client")
+		assert.Equal(t, io.ErrShortWrite, errIn, "Should have received ErrShortWrite copying to client")
 		wg.Done()
 	}()
 
 	// Mimic client
-	conn, err := net.DialTimeout("tcp", lp.Addr().String(), 250*time.Millisecond)
+	conn, err := net.DialTimeout("tcp4", lp.Addr().String(), 250*time.Millisecond)
 	if !assert.NoError(t, err, "Unable to dial") {
 		return
 	}
 
-	data := []byte("Hello copying world")
 	_, err = conn.Write(data)
 	if !assert.NoError(t, err, "Unable to write from client") {
 		return
 	}
-	read := make([]byte, 5)
-	n, err := io.ReadFull(conn, read)
-	if !assert.NoError(t, err, "Unable to read to client") {
-		return
+	read := make([]byte, len(data))
+	// Read slowly
+	i := 0
+	for {
+		end := i + len(read)/10
+		if end > len(read) {
+			end = len(read)
+		}
+		n, err := conn.Read(read[i:end])
+		i += n
+		if err == io.EOF {
+			break
+		}
+		if !assert.NoError(t, err, "Unable to read to client") {
+			return
+		}
+		if i >= len(read)*9/10 {
+			// Sleep really long to force a short write
+			time.Sleep(writeTimeout * 2)
+		} else {
+			// Sleep slightly longer than copyTimeout to force looping on write
+			time.Sleep(copyTimeout * 2)
+		}
 	}
-	if !assert.EqualValues(t, 5, n, "Wrong amount of data read by client") {
-		return
-	}
-	assert.Equal(t, "Hello", string(read), "Client read wrong data")
+	assert.EqualValues(t, data[:i], read[:i], "Client read wrong data")
 	conn.Close()
 
 	wg.Wait()
