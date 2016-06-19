@@ -51,7 +51,7 @@ func TestSimulatedProxy(t *testing.T) {
 			return
 		}
 		_, err = conn.Write(b)
-		assert.Error(t, err, "Writing to proxy should fail because client timed out on reading")
+		assert.NoError(t, err, "Error writing to proxy")
 		// Keep reading from the connection until the client closes it
 		io.Copy(ioutil.Discard, conn)
 		wg.Done()
@@ -79,7 +79,7 @@ func TestSimulatedProxy(t *testing.T) {
 
 		errOut, errIn := BidiCopy(out, in, make([]byte, 32768), make([]byte, 32768), writeTimeout)
 		assert.NoError(t, errOut, "Error copying to server")
-		assert.Equal(t, io.ErrShortWrite, errIn, "Should have received ErrShortWrite copying to client")
+		assert.NoError(t, errIn, "Error copying to client")
 		wg.Done()
 	}()
 
@@ -94,30 +94,13 @@ func TestSimulatedProxy(t *testing.T) {
 		return
 	}
 	read := make([]byte, len(data))
-	// Read slowly
-	i := 0
-	for {
-		end := i + len(read)/10
-		if end > len(read) {
-			end = len(read)
-		}
-		n, err := conn.Read(read[i:end])
-		i += n
-		if err == io.EOF {
-			break
-		}
-		if !assert.NoError(t, err, "Unable to read to client") {
-			return
-		}
-		if i >= len(read)*9/10 {
-			// Sleep really long to force a short write
-			time.Sleep(writeTimeout * 2)
-		} else {
-			// Sleep slightly longer than copyTimeout to force looping on write
-			time.Sleep(copyTimeout * 2)
-		}
+	n, err := io.ReadFull(conn, read)
+	if !assert.NoError(t, err, "Unable to read to client") {
+		return
 	}
-	assert.EqualValues(t, data[:i], read[:i], "Client read wrong data")
+	if assert.Equal(t, len(data), n, "Read wrong amount of data") {
+		assert.EqualValues(t, data, read, "Client read wrong data")
+	}
 	conn.Close()
 
 	wg.Wait()

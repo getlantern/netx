@@ -30,30 +30,38 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, writeTimeout time.Duration, 
 	var err error
 	defer func() {
 		atomic.StoreUint32(stop, 1)
+		dst.SetReadDeadline(time.Now().Add(copyTimeout))
 		errCh <- err
 	}()
 
 	for {
-		if atomic.LoadUint32(stop) == 1 {
-			return
+		stopping := atomic.LoadUint32(stop) == 1
+		if stopping {
+			src.SetReadDeadline(time.Now().Add(copyTimeout))
 		}
-		deadline := time.Now().Add(copyTimeout)
-		src.SetReadDeadline(deadline)
-		dst.SetWriteDeadline(deadline)
 		nr, er := src.Read(buf)
 		if nr > 0 {
-			ew := writeTo(dst, buf[0:nr], writeTimeout)
-			if ew != nil {
+			nw, ew := dst.Write(buf[0:nr])
+			if err != nil {
 				err = ew
+			}
+			if nw != nr {
+				err = io.ErrShortWrite
 				return
 			}
 		}
 		if er == io.EOF {
 			return
 		}
-		if er != nil && !isTimeout(er) {
-			err = er
-			return
+		if er != nil {
+			if isTimeout(er) {
+				if stopping {
+					return
+				}
+			} else {
+				err = er
+				return
+			}
 		}
 	}
 }
