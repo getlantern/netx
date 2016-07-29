@@ -66,24 +66,6 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, writeTimeout time.Duration, 
 	}
 }
 
-func writeTo(dst net.Conn, buf []byte, writeTimeout time.Duration) error {
-	nw := 0
-	writeStart := time.Now()
-	for {
-		nww, err := dst.Write(buf)
-		nw += nww
-		if err != nil && !isTimeout(err) {
-			return err
-		}
-		if nw == len(buf) {
-			return nil
-		}
-		if time.Now().Sub(writeStart) > writeTimeout {
-			return io.ErrShortWrite
-		}
-	}
-}
-
 func isTimeout(err error) bool {
 	if netErr, ok := err.(net.Error); ok {
 		return netErr.Timeout()
