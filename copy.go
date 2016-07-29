@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	ioTimeout       = "i/o timeout"
+	ioTimeoutLength = 11
+)
+
 var (
 	copyTimeout = 1 * time.Second
 )
@@ -67,8 +72,7 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, writeTimeout time.Duration, 
 }
 
 func isTimeout(err error) bool {
-	if netErr, ok := err.(net.Error); ok {
-		return netErr.Timeout()
-	}
-	return false
+	es := err.Error()
+	esl := len(es)
+	return esl >= ioTimeoutLength && es[esl-ioTimeoutLength:] == ioTimeout
 }
