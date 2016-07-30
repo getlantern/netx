@@ -3,6 +3,7 @@ package netx
 import (
 	"bytes"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -23,11 +24,22 @@ func (t *timeouterror) Temporary() bool {
 }
 
 // This is the slowest
-func BenchmarkTimeoutUsingCast(b *testing.B) {
+func BenchmarkTimeoutUsingInterfaceCast(b *testing.B) {
 	var err error = &timeouterror{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if err.(net.Error).Timeout() {
+		}
+	}
+}
+
+// This is very slow too
+func BenchmarkTimeoutUsingReflect(b *testing.B) {
+	var err error = &timeouterror{}
+	netErrType := reflect.TypeOf(err)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if reflect.TypeOf(err) == netErrType {
 		}
 	}
 }
@@ -68,7 +80,7 @@ func BenchmarkTimeoutUsingSuffix(b *testing.B) {
 	}
 }
 
-// This is fastest
+// This is even faster
 func BenchmarkTimeoutUsingSliceCompare(b *testing.B) {
 	var err error = &timeouterror{}
 	b.ResetTimer()
@@ -76,6 +88,17 @@ func BenchmarkTimeoutUsingSliceCompare(b *testing.B) {
 		es := err.Error()
 		esl := len(es)
 		if esl >= ioTimeoutLength && es[esl-ioTimeoutLength:] == ioTimeout {
+		}
+	}
+}
+
+// This is fastest
+func BenchmarkTimeoutUsingConcreteCast(b *testing.B) {
+	var err error = &timeouterror{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, ok := err.(*timeouterror)
+		if ok {
 		}
 	}
 }

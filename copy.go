@@ -43,6 +43,8 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, writeTimeout time.Duration, 
 		stopping := atomic.LoadUint32(stop) == 1
 		if stopping {
 			src.SetReadDeadline(time.Now().Add(copyTimeout))
+		} else {
+			src.SetReadDeadline(time.Now().Add(writeTimeout))
 		}
 		nr, er := src.Read(buf)
 		if nr > 0 {
