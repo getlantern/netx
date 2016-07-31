@@ -69,6 +69,17 @@ func BenchmarkTimeoutUsingHandBuiltCompare(b *testing.B) {
 	}
 }
 
+// Surprisingly slow
+func BenchmarkTimeoutUsingInterfaceEqualCheck(b *testing.B) {
+	var err error = &timeouterror{}
+	err2 := err
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err == err2 {
+		}
+	}
+}
+
 // This is faster
 func BenchmarkTimeoutUsingSuffix(b *testing.B) {
 	var err error = &timeouterror{}
@@ -92,13 +103,24 @@ func BenchmarkTimeoutUsingSliceCompare(b *testing.B) {
 	}
 }
 
-// This is fastest
+// This is very fast
 func BenchmarkTimeoutUsingConcreteCast(b *testing.B) {
 	var err error = &timeouterror{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, ok := err.(*timeouterror)
 		if ok {
+		}
+	}
+}
+
+// This is the fastest
+func BenchmarkTimeoutUsingConcreteEqualCheck(b *testing.B) {
+	err := &timeouterror{}
+	err2 := err
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err == err2 {
 		}
 	}
 }
