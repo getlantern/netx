@@ -13,15 +13,17 @@ import (
 )
 
 func TestSimulatedProxy(t *testing.T) {
-	// originalCopyTimeout := copyTimeout
-	// copyTimeout = 5 * time.Millisecond
-	// defer func() {
-	// 	copyTimeout = originalCopyTimeout
-	// }()
+	originalCopyTimeout := copyTimeout
+	copyTimeout = 5 * time.Millisecond
+	defer func() {
+		copyTimeout = originalCopyTimeout
+	}()
 	data := make([]byte, 30000000)
 	for i := 0; i < len(data); i++ {
 		data[i] = 5
 	}
+
+	writeTimeout := copyTimeout * 25
 
 	_, fdc, err := fdcount.Matching("TCP")
 	if err != nil {
@@ -75,7 +77,7 @@ func TestSimulatedProxy(t *testing.T) {
 		}
 		defer out.Close()
 
-		errOut, errIn := BidiCopy(out, in, make([]byte, 32768), make([]byte, 32768))
+		errOut, errIn := BidiCopy(out, in, make([]byte, 32768), make([]byte, 32768), writeTimeout)
 		assert.NoError(t, errOut, "Error copying to server")
 		assert.NoError(t, errIn, "Error copying to client")
 		wg.Done()
