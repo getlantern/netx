@@ -13,11 +13,11 @@ import (
 )
 
 func TestSimulatedProxy(t *testing.T) {
-	// originalCopyTimeout := copyTimeout
-	// copyTimeout = 5 * time.Millisecond
-	// defer func() {
-	// 	copyTimeout = originalCopyTimeout
-	// }()
+	originalCopyTimeout := copyTimeout
+	copyTimeout = 5 * time.Millisecond
+	defer func() {
+		copyTimeout = originalCopyTimeout
+	}()
 	data := make([]byte, 30000000)
 	for i := 0; i < len(data); i++ {
 		data[i] = 5
