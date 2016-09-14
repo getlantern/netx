@@ -13,11 +13,11 @@ import (
 )
 
 func TestSimulatedProxy(t *testing.T) {
-	// originalCopyTimeout := copyTimeout
-	// copyTimeout = 5 * time.Millisecond
-	// defer func() {
-	// 	copyTimeout = originalCopyTimeout
-	// }()
+	originalCopyTimeout := copyTimeout
+	copyTimeout = 5 * time.Millisecond
+	defer func() {
+		copyTimeout = originalCopyTimeout
+	}()
 	data := make([]byte, 30000000)
 	for i := 0; i < len(data); i++ {
 		data[i] = 5
@@ -108,4 +108,78 @@ func TestSimulatedProxy(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+}
+
+func TestWriteError(t *testing.T) {
+	// Start server that returns some data
+	l, err := startServer(t)
+	if !assert.NoError(t, err, "Unable to listen") {
+		return
+	}
+	defer l.Close()
+
+	src, err := net.Dial("tcp", l.Addr().String())
+	if !assert.NoError(t, err, "Unable to dial server") {
+		return
+	}
+	defer src.Close()
+	dst, err := net.Dial("tcp", l.Addr().String())
+	if !assert.NoError(t, err, "Unable to dial server") {
+		return
+	}
+
+	// Close dst immediately so we get an error on write
+	dst.Close()
+
+	errCh := make(chan error, 1)
+	stop := uint32(0)
+	buf := make([]byte, 1000)
+	doCopy(dst, src, buf, errCh, &stop)
+	reportedErr := <-errCh
+	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
+}
+
+func TestReadError(t *testing.T) {
+	// Start server that returns some data
+	l, err := startServer(t)
+	if !assert.NoError(t, err, "Unable to listen") {
+		return
+	}
+	defer l.Close()
+
+	src, err := net.Dial("tcp", l.Addr().String())
+	if !assert.NoError(t, err, "Unable to dial server") {
+		return
+	}
+	dst, err := net.Dial("tcp", l.Addr().String())
+	if !assert.NoError(t, err, "Unable to dial server") {
+		return
+	}
+	defer dst.Close()
+
+	// Close src immediately so we get an error on read
+	src.Close()
+
+	errCh := make(chan error, 1)
+	stop := uint32(0)
+	buf := make([]byte, 1000)
+	doCopy(dst, src, buf, errCh, &stop)
+	reportedErr := <-errCh
+	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
+}
+
+func startServer(t *testing.T) (net.Listener, error) {
+	// Start server that returns some data
+	l, err := net.Listen("tcp", "localhost:")
+	if err == nil {
+		go func() {
+			conn, acceptErr := l.Accept()
+			if !assert.NoError(t, acceptErr, "Unable to accept connection") {
+				return
+			}
+			conn.Write([]byte("Hello world"))
+			conn.Close()
+		}()
+	}
+	return l, err
 }

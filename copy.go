@@ -44,8 +44,9 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 		nr, er := src.Read(buf)
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
-			if err != nil {
+			if ew != nil {
 				err = ew
+				return
 			}
 			if nw != nr {
 				err = io.ErrShortWrite
