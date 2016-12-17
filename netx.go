@@ -3,6 +3,7 @@
 package netx
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"time"
@@ -27,11 +28,18 @@ func Dial(net string, addr string) (net.Conn, error) {
 // DialTimeout dials the given addr on the given net type using the configured
 // dial function, timing out after the given timeout.
 func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, error) {
-	return dial.Load().(func(string, string, time.Duration) (net.Conn, error))(network, addr, timeout)
+	ctx, _ := context.WithTimeout(context.Background(), timeout)
+	return DialContext(ctx, network, addr)
+}
+
+// DialContext dials the given addr on the given net type using the configured
+// dial function, with the given context.
+func DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
+	return dial.Load().(func(context.Context, string, string) (net.Conn, error))(ctx, network, addr)
 }
 
 // OverrideDial overrides the global dial function.
-func OverrideDial(dialFN func(net string, addr string, timeout time.Duration) (net.Conn, error)) {
+func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net.Conn, error)) {
 	dial.Store(dialFN)
 }
 
@@ -47,6 +55,7 @@ func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, erro
 
 // Reset resets netx to its default settings
 func Reset() {
-	OverrideDial(net.DialTimeout)
+	var d net.Dialer
+	OverrideDial(d.DialContext)
 	OverrideResolve(net.ResolveTCPAddr)
 }
