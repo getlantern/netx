@@ -28,8 +28,10 @@ func Dial(net string, addr string) (net.Conn, error) {
 // DialTimeout dials the given addr on the given net type using the configured
 // dial function, timing out after the given timeout.
 func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, error) {
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
-	return DialContext(ctx, network, addr)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	conn, err := DialContext(ctx, network, addr)
+	cancel()
+	return conn, err
 }
 
 // DialContext dials the given addr on the given net type using the configured
