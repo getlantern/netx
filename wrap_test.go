@@ -33,3 +33,15 @@ func TestWalkWrapped(t *testing.T) {
 	})
 	assert.EqualValues(t, []int{1, 2, 3}, result)
 }
+
+func TestWalkWrappedFirst(t *testing.T) {
+	var c net.Conn
+	gotFirst := false
+	WalkWrapped(c, func(conn net.Conn) bool {
+		if conn == nil {
+			gotFirst = true
+		}
+		return true
+	})
+	assert.True(t, gotFirst)
+}

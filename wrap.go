@@ -14,11 +14,11 @@ type WrappedConn interface {
 // callback returns false, the walk stops.
 func WalkWrapped(conn net.Conn, cb func(net.Conn) bool) {
 	for {
+		if !cb(conn) {
+			return
+		}
 		switch t := conn.(type) {
 		case WrappedConn:
-			if !cb(t) {
-				return
-			}
 			conn = t.Wrapped()
 		default:
 			return
