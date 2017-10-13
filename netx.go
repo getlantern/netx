@@ -23,12 +23,12 @@ func init() {
 }
 
 // Dial is like DialTimeout using a default timeout of 1 minute.
-func Dial(net string, addr string) (net.Conn, error) {
-	return DialTimeout(net, addr, defaultDialTimeout)
+func Dial(network string, addr string) (net.Conn, error) {
+	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
-func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error) {
-	return dialUDP.Load().(func(string, laddr, raddr *UDPAddr) (*net.UDPConn, error))(net, laddr, raddr)
+func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+	return dialUDP.Load().(func(string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
 }
 
 // DialTimeout dials the given addr on the given net type using the configured
@@ -69,7 +69,7 @@ func ResolveUDP(network string, addr string) (*net.UDPAddr, error) {
 	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
 }
 
-func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
+func OverrideUDPResolve(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
 	resolveUDPAddr.Store(resolveFN)
 }
 
