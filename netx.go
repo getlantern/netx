@@ -27,7 +27,7 @@ func Dial(network string, addr string) (net.Conn, error) {
 	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
-func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+func DialUDP(network string, laddr, raddr *net.UDPAddr) (net.Conn, error) {
 	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (net.Conn, error))(network, laddr, raddr)
 }
 
