@@ -28,7 +28,7 @@ func Dial(network string, addr string) (net.Conn, error) {
 }
 
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
-	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
+	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (net.Conn, error))(network, laddr, raddr)
 }
 
 // DialTimeout dials the given addr on the given net type using the configured
@@ -51,7 +51,7 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
-func OverrideUDPDial(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
+func OverrideUDPDial(dialFN func(net string, laddr, raddr *net.UDPAddr) (net.Conn, error)) {
 	dialUDP.Store(dialFN)
 }
 
