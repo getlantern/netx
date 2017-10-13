@@ -11,7 +11,9 @@ import (
 
 var (
 	dial           atomic.Value
+	dialUDP        atomic.Value
 	resolveTCPAddr atomic.Value
+	resolveUDPAddr atomic.Value
 
 	defaultDialTimeout = 1 * time.Minute
 )
@@ -23,6 +25,10 @@ func init() {
 // Dial is like DialTimeout using a default timeout of 1 minute.
 func Dial(net string, addr string) (net.Conn, error) {
 	return DialTimeout(net, addr, defaultDialTimeout)
+}
+
+func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error) {
+	return dialUDP.Load().(func(string, laddr, raddr *UDPAddr) (*net.UDPConn, error))(net, laddr, raddr)
 }
 
 // DialTimeout dials the given addr on the given net type using the configured
@@ -45,6 +51,10 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
+func OverrideUDPDial(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
+	dialUDP.Store(dialFN)
+}
+
 // Resolve resolves the given tcp address using the configured resolve function.
 func Resolve(network string, addr string) (*net.TCPAddr, error) {
 	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
@@ -55,9 +65,19 @@ func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, erro
 	resolveTCPAddr.Store(resolveFN)
 }
 
+func ResolveUDP(network string, addr string) (*net.UDPAddr, error) {
+	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
+}
+
+func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
+	resolveUDPAddr.Store(resolveFN)
+}
+
 // Reset resets netx to its default settings
 func Reset() {
 	var d net.Dialer
 	OverrideDial(d.DialContext)
+	OverrideUDPDial(net.DialUDP)
 	OverrideResolve(net.ResolveTCPAddr)
+	OverrideUDPResolve(net.ResolveUDPAddr)
 }
