@@ -74,8 +74,8 @@ func OverrideUDPResolve(resolveFN func(net string, addr string) (*net.UDPAddr, e
 }
 
 func SetDefaultUDPDial() {
-	dialFN := func(net string, laddr, raddr *net.UDPAddr) (net.Conn, error) {
-		conn, err := net.DialUDP(net, laddr, raddr)
+	dialFN := func(network string, laddr, raddr *net.UDPAddr) (net.Conn, error) {
+		conn, err := net.DialUDP(network, laddr, raddr)
 		return conn, err
 	}
 	dialUDP.Store(dialFN)
