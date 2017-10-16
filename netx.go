@@ -77,6 +77,7 @@ func OverrideUDPResolve(resolveFN func(net string, addr string) (*net.UDPAddr, e
 func Reset() {
 	var d net.Dialer
 	OverrideDial(d.DialContext)
+	OverrideUDPDial(net.DialUDP)
 	OverrideResolve(net.ResolveTCPAddr)
 	OverrideUDPResolve(net.ResolveUDPAddr)
 }
