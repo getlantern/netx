@@ -27,6 +27,7 @@ func Dial(network string, addr string) (net.Conn, error) {
 	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
+// DialUDP acts like Dial but for UDP networks.
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
 }
@@ -51,6 +52,7 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
+// OverrideDialUDP overrides the global dialUDP function.
 func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
 	dialUDP.Store(dialFN)
 }
@@ -69,6 +71,7 @@ func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, erro
 	resolveTCPAddr.Store(resolveFN)
 }
 
+// OverrideResolveUDP overrides the global resolveUDP function.
 func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
 	resolveUDPAddr.Store(resolveFN)
 }
