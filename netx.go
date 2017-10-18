@@ -51,7 +51,7 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
-func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (net.Conn, error)) {
+func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
 	dialUDP.Store(dialFN)
 }
 
