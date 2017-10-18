@@ -27,8 +27,8 @@ func Dial(network string, addr string) (net.Conn, error) {
 	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
-func DialUDP(network string, laddr, raddr *net.UDPAddr) (net.Conn, error) {
-	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (net.Conn, error))(network, laddr, raddr)
+func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.Conn, error))(network, laddr, raddr)
 }
 
 // DialTimeout dials the given addr on the given net type using the configured
@@ -51,7 +51,7 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
-func OverrideUDPDial(dialFN func(net string, laddr, raddr *net.UDPAddr) (net.Conn, error)) {
+func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (net.Conn, error)) {
 	dialUDP.Store(dialFN)
 }
 
@@ -60,32 +60,24 @@ func Resolve(network string, addr string) (*net.TCPAddr, error) {
 	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
 }
 
+func ResolveUDP(network string, addr string) (*net.UDPAddr, error) {
+	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
+}
+
 // OverrideResolve overrides the global resolve function.
 func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, error)) {
 	resolveTCPAddr.Store(resolveFN)
 }
 
-func ResolveUDP(network string, addr string) (*net.UDPAddr, error) {
-	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
-}
-
-func OverrideUDPResolve(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
+func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
 	resolveUDPAddr.Store(resolveFN)
-}
-
-func SetDefaultUDPDial() {
-	dialFN := func(network string, laddr, raddr *net.UDPAddr) (net.Conn, error) {
-		conn, err := net.DialUDP(network, laddr, raddr)
-		return conn, err
-	}
-	dialUDP.Store(dialFN)
 }
 
 // Reset resets netx to its default settings
 func Reset() {
 	var d net.Dialer
 	OverrideDial(d.DialContext)
-	SetDefaultUDPDial()
+	OverrideDialUDP(net.DialUDP)
 	OverrideResolve(net.ResolveTCPAddr)
-	OverrideUDPResolve(net.ResolveUDPAddr)
+	OverrideResolveUDP(net.ResolveUDPAddr)
 }
