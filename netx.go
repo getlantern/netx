@@ -62,7 +62,7 @@ func Resolve(network string, addr string) (*net.TCPAddr, error) {
 	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
 }
 
-func ResolveUDP(network string, addr string) (*net.UDPAddr, error) {
+func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
 	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
 }
 
