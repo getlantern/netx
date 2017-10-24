@@ -7,8 +7,6 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
-
-	"github.com/getlantern/golog"
 )
 
 var (
@@ -18,8 +16,6 @@ var (
 	resolveUDPAddr atomic.Value
 
 	defaultDialTimeout = 1 * time.Minute
-
-	log = golog.LoggerFor("netx")
 )
 
 func init() {
@@ -28,13 +24,11 @@ func init() {
 
 // Dial is like DialTimeout using a default timeout of 1 minute.
 func Dial(network string, addr string) (net.Conn, error) {
-	log.Debugf("Dialing (%s) %s", network, addr)
 	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
 // DialUDP acts like Dial but for UDP networks.
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
-	log.Debugf("Dialing (%s) %v", network, raddr)
 	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
 }
 
