@@ -4,11 +4,13 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/getlantern/fdcount"
+	"github.com/getlantern/mockconn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -166,6 +168,24 @@ func TestReadError(t *testing.T) {
 	doCopy(dst, src, buf, errCh, &stop)
 	reportedErr := <-errCh
 	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
+}
+
+func TestPanicOnCopy(t *testing.T) {
+	outErr, inErr := BidiCopy(newPanickingConn(), newPanickingConn(), make([]byte, 8192), make([]byte, 8192))
+	assert.Error(t, outErr)
+	assert.Error(t, inErr)
+}
+
+func newPanickingConn() net.Conn {
+	return &panickingConn{mockconn.New(nil, strings.NewReader("I have some data for you"))}
+}
+
+type panickingConn struct {
+	net.Conn
+}
+
+func (pc *panickingConn) Write(b []byte) (int, error) {
+	panic("I won't write!")
 }
 
 func startServer(t *testing.T) (net.Listener, error) {
