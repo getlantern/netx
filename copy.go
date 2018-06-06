@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/getlantern/errors"
 )
 
 const (
@@ -34,6 +36,13 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 		atomic.StoreUint32(stop, 1)
 		dst.SetReadDeadline(time.Now().Add(copyTimeout))
 		errCh <- err
+	}()
+
+	defer func() {
+		p := recover()
+		if p != nil {
+			err = errors.New("Panic while copying: %v", p)
+		}
 	}()
 
 	for {
