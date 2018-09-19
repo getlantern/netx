@@ -2,10 +2,16 @@ package netx
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
+)
+
+const (
+	ioTimeout       = "i/o timeout"
+	ioTimeoutLength = 11
 )
 
 type timeouterror struct {
@@ -20,6 +26,21 @@ func (t *timeouterror) Timeout() bool {
 }
 
 func (t *timeouterror) Temporary() bool {
+	return false
+}
+
+type timeouterror2 struct {
+}
+
+func (t *timeouterror2) Error() string {
+	return "unusual message"
+}
+
+func (t *timeouterror2) Timeout() bool {
+	return true
+}
+
+func (t *timeouterror2) Temporary() bool {
 	return false
 }
 
@@ -136,4 +157,103 @@ func hasSuffix(a string, b string, l int) bool {
 		}
 	}
 	return true
+}
+
+func BenchmarkMixedFastPath3x(b *testing.B) {
+	err1 := &timeouterror{}
+	err2 := &timeouterror2{}
+	err3 := context.Canceled
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutFP(err1)
+		isTimeoutFP(err2)
+		isTimeoutFP(err3)
+	}
+}
+
+func BenchmarkFastPath1(b *testing.B) {
+	err1 := &timeouterror{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutFP(err1)
+	}
+}
+
+func BenchmarkFastPath2(b *testing.B) {
+	err1 := &timeouterror2{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutFP(err1)
+	}
+}
+
+func BenchmarkFastPath3(b *testing.B) {
+	err1 := context.Canceled
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutFP(err1)
+	}
+}
+
+func BenchmarkMixedSlowPath3x(b *testing.B) {
+	err1 := &timeouterror{}
+	err2 := &timeouterror2{}
+	err3 := context.Canceled
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutSP(err1)
+		isTimeoutSP(err2)
+		isTimeoutSP(err3)
+	}
+}
+
+func BenchmarkSlowPath1(b *testing.B) {
+	err1 := &timeouterror{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutSP(err1)
+	}
+}
+
+func BenchmarkSlowPath2(b *testing.B) {
+	err1 := &timeouterror2{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutSP(err1)
+	}
+}
+
+func BenchmarkSlowPath3(b *testing.B) {
+	err1 := context.Canceled
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		isTimeoutSP(err1)
+	}
+}
+
+func isTimeoutFP(err error) bool {
+	es := err.Error()
+	esl := len(es)
+	if esl >= ioTimeoutLength && es[esl-ioTimeoutLength:] == ioTimeout {
+		return true
+	}
+	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+		return true
+	}
+	return false
+}
+
+func isTimeoutSP(err error) bool {
+	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+		return true
+	}
+	return false
 }
