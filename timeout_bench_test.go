@@ -9,6 +9,11 @@ import (
 	"testing"
 )
 
+const (
+	ioTimeout       = "i/o timeout"
+	ioTimeoutLength = 11
+)
+
 type timeouterror struct {
 }
 

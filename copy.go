@@ -9,11 +9,6 @@ import (
 	"github.com/getlantern/errors"
 )
 
-const (
-	ioTimeout       = "i/o timeout"
-	ioTimeoutLength = 11
-)
-
 var (
 	copyTimeout = 1 * time.Second
 )
@@ -79,11 +74,6 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 }
 
 func isTimeout(err error) bool {
-	es := err.Error()
-	esl := len(es)
-	if esl >= ioTimeoutLength && es[esl-ioTimeoutLength:] == ioTimeout {
-		return true
-	}
 	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
 		return true
 	}
