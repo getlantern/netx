@@ -61,7 +61,7 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 			return
 		}
 		if er != nil {
-			if isTimeout(er) {
+			if IsTimeout(er) {
 				if stopping {
 					return
 				}
@@ -73,7 +73,8 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 	}
 }
 
-func isTimeout(err error) bool {
+// IsTimeout indicates whether the given error is a network timeout error
+func IsTimeout(err error) bool {
 	if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
 		return true
 	}
