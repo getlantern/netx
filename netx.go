@@ -12,6 +12,7 @@ import (
 var (
 	dial           atomic.Value
 	dialUDP        atomic.Value
+	listenUDP      atomic.Value
 	resolveTCPAddr atomic.Value
 	resolveUDPAddr atomic.Value
 
@@ -47,6 +48,11 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	return dial.Load().(func(context.Context, string, string) (net.Conn, error))(ctx, network, addr)
 }
 
+// ListenUDP acts like ListenPacket for UDP networks.
+func ListenUDP(network string, laddr *net.UDPAddr) (*net.UDPConn, error) {
+	return listenUDP.Load().(func(network string, laddr *net.UDPAddr) (*net.UDPConn, error))(network, laddr)
+}
+
 // OverrideDial overrides the global dial function.
 func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net.Conn, error)) {
 	dial.Store(dialFN)
@@ -55,6 +61,11 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 // OverrideDialUDP overrides the global dialUDP function.
 func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
 	dialUDP.Store(dialFN)
+}
+
+// OverrideListenUDP overrides the global listenUDP function.
+func OverrideListenUDP(listenFN func(network string, laddr *net.UDPAddr) (*net.UDPConn, error)) {
+	listenUDP.Store(listenFN)
 }
 
 // Resolve resolves the given tcp address using the configured resolve function.
@@ -81,6 +92,7 @@ func Reset() {
 	var d net.Dialer
 	OverrideDial(d.DialContext)
 	OverrideDialUDP(net.DialUDP)
+	OverrideListenUDP(net.ListenUDP)
 	OverrideResolve(net.ResolveTCPAddr)
 	OverrideResolveUDP(net.ResolveUDPAddr)
 }
