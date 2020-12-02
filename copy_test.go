@@ -12,6 +12,7 @@ import (
 	"github.com/getlantern/fdcount"
 	"github.com/getlantern/mockconn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimulatedProxy(t *testing.T) {
@@ -136,9 +137,11 @@ func TestWriteError(t *testing.T) {
 	errCh := make(chan error, 1)
 	stop := uint32(0)
 	buf := make([]byte, 1000)
-	doCopy(dst, src, buf, errCh, &stop)
+	nw := 0
+	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n })
 	reportedErr := <-errCh
 	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
+	assert.Zero(t, nw, "Shouldn't have written any bytes")
 }
 
 func TestReadError(t *testing.T) {
@@ -165,15 +168,21 @@ func TestReadError(t *testing.T) {
 	errCh := make(chan error, 1)
 	stop := uint32(0)
 	buf := make([]byte, 1000)
-	doCopy(dst, src, buf, errCh, &stop)
+	nw := 0
+	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n })
 	reportedErr := <-errCh
 	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
+	assert.Zero(t, nw, "Shouldn't have written any bytes")
 }
 
 func TestPanicOnCopy(t *testing.T) {
 	outErr, inErr := BidiCopy(newPanickingConn(), newPanickingConn(), make([]byte, 8192), make([]byte, 8192))
-	assert.Error(t, outErr)
-	assert.Error(t, inErr)
+	require.Error(t, outErr)
+	require.Error(t, inErr)
+	require.Contains(t, outErr.Error(), "panickingConn")
+	require.Contains(t, inErr.Error(), "panickingConn")
+	require.Contains(t, outErr.Error(), "panickingConn")
+	require.Contains(t, inErr.Error(), "panickingConn")
 }
 
 func newPanickingConn() net.Conn {
