@@ -3,6 +3,7 @@ package netx
 import (
 	"io"
 	"net"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -16,16 +17,21 @@ var (
 // BidiCopy copies between in and out in both directions using the specified
 // buffers, returning the errors from copying to out and copying to in.
 func BidiCopy(out net.Conn, in net.Conn, bufOut []byte, bufIn []byte) (outErr error, inErr error) {
+	return BidiCopyWithTracking(out, in, bufOut, bufIn, func(int) {}, func(int) {})
+}
+
+// BidiCopyWithTracking is like BidiCopy but tracks reads and writes via callbacks
+func BidiCopyWithTracking(out net.Conn, in net.Conn, bufOut []byte, bufIn []byte, onOut func(int), onIn func(int)) (outErr error, inErr error) {
 	stop := uint32(0)
 	outErrCh := make(chan error, 1)
 	inErrCh := make(chan error, 1)
-	go doCopy(out, in, bufIn, outErrCh, &stop)
-	go doCopy(in, out, bufOut, inErrCh, &stop)
+	go doCopy(out, in, bufIn, outErrCh, &stop, onOut)
+	go doCopy(in, out, bufOut, inErrCh, &stop, onIn)
 	return <-outErrCh, <-inErrCh
 }
 
 // doCopy is based on io.copyBuffer
-func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint32) {
+func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint32, cb func(int)) {
 	var err error
 	defer func() {
 		atomic.StoreUint32(stop, 1)
@@ -36,7 +42,7 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 	defer func() {
 		p := recover()
 		if p != nil {
-			err = errors.New("Panic while copying: %v", p)
+			err = errors.New("Panic while copying: %v\n%v", p, string(debug.Stack()))
 		}
 	}()
 
@@ -56,6 +62,7 @@ func doCopy(dst net.Conn, src net.Conn, buf []byte, errCh chan error, stop *uint
 				err = io.ErrShortWrite
 				return
 			}
+			cb(nw)
 		}
 		if er == io.EOF {
 			return
