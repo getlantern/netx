@@ -138,7 +138,7 @@ func TestWriteError(t *testing.T) {
 	stop := uint32(0)
 	buf := make([]byte, 1000)
 	nw := 0
-	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n })
+	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n }, basicStartGoroutine)
 	reportedErr := <-errCh
 	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
 	assert.Zero(t, nw, "Shouldn't have written any bytes")
@@ -169,7 +169,7 @@ func TestReadError(t *testing.T) {
 	stop := uint32(0)
 	buf := make([]byte, 1000)
 	nw := 0
-	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n })
+	doCopy(dst, src, buf, errCh, &stop, func(n int) { nw += n }, basicStartGoroutine)
 	reportedErr := <-errCh
 	assert.Contains(t, reportedErr.Error(), "use of closed network connection")
 	assert.Zero(t, nw, "Shouldn't have written any bytes")
