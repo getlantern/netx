@@ -11,10 +11,12 @@ import (
 
 var (
 	dial           atomic.Value
+	dialTCP        atomic.Value
 	dialUDP        atomic.Value
 	listenUDP      atomic.Value
 	resolveTCPAddr atomic.Value
 	resolveUDPAddr atomic.Value
+	resolveIPAddr  atomic.Value
 
 	defaultDialTimeout = 1 * time.Minute
 )
@@ -31,6 +33,10 @@ func Dial(network string, addr string) (net.Conn, error) {
 // DialUDP acts like Dial but for UDP networks.
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
+}
+
+func DialTCP(network string, laddr, raddr *net.TCPAddr) (*net.TCPConn, error) {
+	return dialTCP.Load().(func(string, *net.TCPAddr, *net.TCPAddr) (*net.TCPConn, error))(network, laddr, raddr)
 }
 
 // DialTimeout dials the given addr on the given net type using the configured
@@ -58,6 +64,10 @@ func OverrideDial(dialFN func(ctx context.Context, net string, addr string) (net
 	dial.Store(dialFN)
 }
 
+func OverrideDialTCP(dialFN func(string, *net.TCPAddr, *net.TCPAddr) (*net.TCPConn, error)) {
+	dialTCP.Store(dialFN)
+}
+
 // OverrideDialUDP overrides the global dialUDP function.
 func OverrideDialUDP(dialFN func(net string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error)) {
 	dialUDP.Store(dialFN)
@@ -73,6 +83,10 @@ func Resolve(network string, addr string) (*net.TCPAddr, error) {
 	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
 }
 
+func ResolveIPAddr(network, address string) (*net.IPAddr, error) {
+	return resolveIPAddr.Load().(func(string, string) (*net.IPAddr, error))(network, address)
+}
+
 func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
 	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
 }
@@ -80,6 +94,10 @@ func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
 // OverrideResolve overrides the global resolve function.
 func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, error)) {
 	resolveTCPAddr.Store(resolveFN)
+}
+
+func OverrideResolveIPAddr(resolveFN func(string, string) (*net.IPAddr, error)) {
+	resolveIPAddr.Store(resolveFN)
 }
 
 // OverrideResolveUDP overrides the global resolveUDP function.
@@ -91,8 +109,10 @@ func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, e
 func Reset() {
 	var d net.Dialer
 	OverrideDial(d.DialContext)
+	OverrideDialTCP(net.DialTCP)
 	OverrideDialUDP(net.DialUDP)
 	OverrideListenUDP(net.ListenUDP)
 	OverrideResolve(net.ResolveTCPAddr)
 	OverrideResolveUDP(net.ResolveUDPAddr)
+	OverrideResolveIPAddr(net.ResolveIPAddr)
 }
