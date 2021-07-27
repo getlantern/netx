@@ -5,17 +5,18 @@ package netx
 import (
 	"context"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 )
 
 var (
-	dial           atomic.Value
-	dialUDP        atomic.Value
-	listenUDP      atomic.Value
-	resolveTCPAddr atomic.Value
-	resolveUDPAddr atomic.Value
-
+	dial               atomic.Value
+	dialUDP            atomic.Value
+	listenUDP          atomic.Value
+	resolveTCPAddr     atomic.Value
+	resolveUDPAddr     atomic.Value
+	NAT64Prefix        atomic.Value
 	defaultDialTimeout = 1 * time.Minute
 )
 
@@ -23,9 +24,56 @@ func init() {
 	Reset()
 }
 
+type NAT64PrefixHolder struct {
+	expiration time.Time
+	prefix     []byte
+}
+
+func getNAT64Prefix() []byte {
+	if holder, ok := NAT64Prefix.Load().(*NAT64PrefixHolder); holder != nil && ok {
+		if time.Now().Before(holder.expiration) {
+			return holder.prefix
+		}
+	}
+	ips, err := net.LookupIP("ipv4only.arpa")
+	if err == nil {
+		for _, ip := range ips {
+			if ip.To4() == nil {
+				prefix := ip[:12]
+				NAT64Prefix.Store(&NAT64PrefixHolder{prefix: prefix, expiration: time.Now().Add(time.Hour * 1)})
+				return prefix
+			}
+		}
+	}
+	return nil
+}
+
+func isNetworkUnreachable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "network is unreachable")
+}
+
+func convertAddressDNS64(addr string) string {
+	prefix := getNAT64Prefix()
+	if prefix == nil {
+		return addr
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	ip := net.ParseIP(host).To16()
+	copy(ip[:12], prefix)
+	return net.JoinHostPort(ip.String(), port)
+}
+
 // Dial is like DialTimeout using a default timeout of 1 minute.
 func Dial(network string, addr string) (net.Conn, error) {
-	return DialTimeout(network, addr, defaultDialTimeout)
+	conn, err := DialTimeout(network, addr, defaultDialTimeout)
+	if isNetworkUnreachable(err) {
+		addr = convertAddressDNS64(addr)
+		conn, err = DialTimeout(network, addr, defaultDialTimeout)
+	}
+	return conn, err
 }
 
 // DialUDP acts like Dial but for UDP networks.
@@ -38,6 +86,11 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	conn, err := DialContext(ctx, network, addr)
+	if isNetworkUnreachable(err) {
+		addr = convertAddressDNS64(addr)
+		conn, err = DialContext(ctx, network, addr)
+	}
+
 	cancel()
 	return conn, err
 }
@@ -45,7 +98,14 @@ func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, 
 // DialContext dials the given addr on the given net type using the configured
 // dial function, with the given context.
 func DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
-	return dial.Load().(func(context.Context, string, string) (net.Conn, error))(ctx, network, addr)
+	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
+
+	conn, err := dialer(ctx, network, addr)
+	if isNetworkUnreachable(err) {
+		addr = convertAddressDNS64(addr)
+		conn, err = dialer(ctx, network, addr)
+	}
+	return conn, err
 }
 
 // ListenUDP acts like ListenPacket for UDP networks.
