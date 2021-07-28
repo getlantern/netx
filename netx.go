@@ -29,6 +29,11 @@ type NAT64PrefixHolder struct {
 	prefix     []byte
 }
 
+func ResetNAT64Prefix() {
+	NAT64Prefix.Store(nil)
+}
+
+// getNAT64Prefix returns previously fetched ipv6 prefix, or gets a fresh one using DNS lookup
 func getNAT64Prefix() []byte {
 	if holder, ok := NAT64Prefix.Load().(*NAT64PrefixHolder); holder != nil && ok {
 		if time.Now().Before(holder.expiration) {
@@ -48,32 +53,33 @@ func getNAT64Prefix() []byte {
 	return nil
 }
 
+// isNetworkUnreachable checks if the error matches string representation of ENETUNREACH (taken from zerrors_*.go in src/syscall)
 func isNetworkUnreachable(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "network is unreachable")
 }
 
+// convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
 func convertAddressDNS64(addr string) string {
-	prefix := getNAT64Prefix()
-	if prefix == nil {
-		return addr
-	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
 	}
-	ip := net.ParseIP(host).To16()
-	copy(ip[:12], prefix)
-	return net.JoinHostPort(ip.String(), port)
+	ip := net.ParseIP(host)
+	if ip.To4() == nil { // if it's ipv6 already - don't do anything
+		return addr
+	}
+	prefix := getNAT64Prefix()
+	if prefix == nil {
+		return addr
+	}
+	ipv6 := ip.To16()
+	copy(ipv6[:12], prefix)
+	return net.JoinHostPort(ipv6.String(), port)
 }
 
 // Dial is like DialTimeout using a default timeout of 1 minute.
 func Dial(network string, addr string) (net.Conn, error) {
-	conn, err := DialTimeout(network, addr, defaultDialTimeout)
-	if isNetworkUnreachable(err) {
-		addr = convertAddressDNS64(addr)
-		conn, err = DialTimeout(network, addr, defaultDialTimeout)
-	}
-	return conn, err
+	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
 // DialUDP acts like Dial but for UDP networks.
@@ -86,10 +92,6 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
 func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	conn, err := DialContext(ctx, network, addr)
-	if isNetworkUnreachable(err) {
-		addr = convertAddressDNS64(addr)
-		conn, err = DialContext(ctx, network, addr)
-	}
 
 	cancel()
 	return conn, err
@@ -101,7 +103,9 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
 
 	conn, err := dialer(ctx, network, addr)
-	if isNetworkUnreachable(err) {
+	ipv4Network := network == "udp4" || network == "tcp4"
+	// if we are not dialing an explicitly ipv4 network and we got ENETUNREACH - try applying DNS64 prefix
+	if !ipv4Network && isNetworkUnreachable(err) {
 		addr = convertAddressDNS64(addr)
 		conn, err = dialer(ctx, network, addr)
 	}
