@@ -53,9 +53,9 @@ func getNAT64Prefix() []byte {
 	return nil
 }
 
-// isNetworkUnreachable checks if the error matches string representation of ENETUNREACH (taken from zerrors_*.go in src/syscall)
+// isNetworkUnreachable checks if the error matches string representation of ENETUNREACH
 func isNetworkUnreachable(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "network is unreachable")
+	return err != nil && strings.Contains(err.Error(), "unreachable")
 }
 
 // convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
