@@ -8,6 +8,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/getlantern/golog"
+)
+
+var (
+	log = golog.LoggerFor("netx")
 )
 
 var (
@@ -21,6 +27,7 @@ var (
 )
 
 func init() {
+	log.Debug("initializing netx")
 	Reset()
 }
 
@@ -79,11 +86,13 @@ func convertAddressDNS64(addr string) string {
 
 // Dial is like DialTimeout using a default timeout of 1 minute.
 func Dial(network string, addr string) (net.Conn, error) {
+	log.Debugf("dial (%v) %v", network, addr)
 	return DialTimeout(network, addr, defaultDialTimeout)
 }
 
 // DialUDP acts like Dial but for UDP networks.
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
+	log.Debugf("dialUDP (%v) %v", network, raddr)
 	return dialUDP.Load().(func(string, *net.UDPAddr, *net.UDPAddr) (*net.UDPConn, error))(network, laddr, raddr)
 }
 
@@ -100,14 +109,17 @@ func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, 
 // DialContext dials the given addr on the given net type using the configured
 // dial function, with the given context.
 func DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
+	log.Debugf("dialing (%v) %v", network, addr)
+
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
 
 	conn, err := dialer(ctx, network, addr)
 	ipv4Network := network == "udp4" || network == "tcp4"
 	// if we are not dialing an explicitly ipv4 network and we got ENETUNREACH - try applying DNS64 prefix
 	if !ipv4Network && isNetworkUnreachable(err) {
-		addr = convertAddressDNS64(addr)
-		conn, err = dialer(ctx, network, addr)
+		nat64Addr := convertAddressDNS64(addr)
+		log.Debugf("failling back to dialing (%v) %v with nat64 address ", network, addr, nat64Addr)
+		conn, err = dialer(ctx, network, nat64Addr)
 	}
 	return conn, err
 }
