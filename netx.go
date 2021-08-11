@@ -5,7 +5,6 @@ package netx
 import (
 	"context"
 	"net"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,47 +21,46 @@ var (
 	listenUDP          atomic.Value
 	resolveTCPAddr     atomic.Value
 	resolveUDPAddr     atomic.Value
-	NAT64Prefix        atomic.Value
+	nat64Prefix        atomic.Value
 	defaultDialTimeout = 1 * time.Minute
 )
 
 func init() {
 	log.Debug("initializing netx")
+	go keepNAT64PrefixFresh()
 	Reset()
 }
 
-type NAT64PrefixHolder struct {
-	expiration time.Time
-	prefix     []byte
+func keepNAT64PrefixFresh() {
+	for {
+		updateNAT64Prefix()
+		time.Sleep(1 * time.Second)
+	}
 }
 
-func ResetNAT64Prefix() {
-	NAT64Prefix.Store(nil)
+func updateNAT64Prefix() {
+	ips, err := net.LookupIP("ipv4only.arpa")
+	if err == nil {
+		log.Debugf("ipv4only.arpa returned %v", ips)
+		for _, ip := range ips {
+			if ip.To4() == nil {
+				prefix := ip[:12]
+				log.Debugf("Got nat64 prefix: %v", prefix)
+				nat64Prefix.Store([]byte(prefix))
+				return
+			}
+		}
+	}
+	log.Debug("No nat64 prefix")
+	nat64Prefix.Store(nil)
 }
 
 // getNAT64Prefix returns previously fetched ipv6 prefix, or gets a fresh one using DNS lookup
 func getNAT64Prefix() []byte {
-	if holder, ok := NAT64Prefix.Load().(*NAT64PrefixHolder); holder != nil && ok {
-		if time.Now().Before(holder.expiration) {
-			return holder.prefix
-		}
-	}
-	ips, err := net.LookupIP("ipv4only.arpa")
-	if err == nil {
-		for _, ip := range ips {
-			if ip.To4() == nil {
-				prefix := ip[:12]
-				NAT64Prefix.Store(&NAT64PrefixHolder{prefix: prefix, expiration: time.Now().Add(time.Hour * 1)})
-				return prefix
-			}
-		}
+	if prefix, ok := nat64Prefix.Load().([]byte); ok {
+		return prefix
 	}
 	return nil
-}
-
-// isNetworkUnreachable checks if the error matches string representation of ENETUNREACH
-func isNetworkUnreachable(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "unreachable")
 }
 
 // convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
@@ -110,21 +108,16 @@ func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, 
 // dial function, with the given context.
 func DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
 	log.Debugf("dialing (%v) %v", network, addr)
+	addr = convertAddressDNS64(addr)
+	log.Debugf("actually dialing (%v) %v", network, addr)
 
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
 
 	conn, err := dialer(ctx, network, addr)
-	ipv4Network := network == "udp4" || network == "tcp4"
-	// if we are not dialing an explicitly ipv4 network and we got ENETUNREACH - try applying DNS64 prefix
 	if err != nil {
 		log.Errorf("error dialing (%v) %v: %v", network, addr, err)
 	} else {
 		log.Debugf("successfully dialed (%v) %v", network, addr)
-	}
-	if !ipv4Network && isNetworkUnreachable(err) {
-		nat64Addr := convertAddressDNS64(addr)
-		log.Debugf("falling back to dialing (%v) %v with nat64 address %v", network, addr, nat64Addr)
-		conn, err = dialer(ctx, network, nat64Addr)
 	}
 	return conn, err
 }
