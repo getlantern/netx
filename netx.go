@@ -5,11 +5,14 @@ package netx
 import (
 	"bytes"
 	"context"
+	"math/rand"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/iptool"
 )
@@ -22,8 +25,7 @@ var (
 	dial                  atomic.Value
 	dialUDP               atomic.Value
 	listenUDP             atomic.Value
-	resolveTCPAddr        atomic.Value
-	resolveUDPAddr        atomic.Value
+	resolveIPs            atomic.Value
 	enableNAT64Once       sync.Once
 	nat64Prefix           []byte
 	nat64PrefixMx         sync.RWMutex
@@ -65,24 +67,26 @@ func EnableNAT64AutoDiscovery() {
 }
 
 func updateNAT64Prefix() {
-	ips, err := net.LookupIP("ipv4only.arpa")
-	if err == nil {
-		for _, ip := range ips {
-			if ip.To4() == nil {
-				prefix := ip[:12]
-				if bytes.Count(prefix, zero) < 12 {
-					nat64PrefixMx.Lock()
-					nat64Prefix = prefix
-					nat64PrefixMx.Unlock()
-					return
-				}
+	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))("ipv4only.arpa")
+	if err != nil {
+		log.Errorf("Error checking for updated nat64 prefix: %v", err)
+		return
+	}
+	for _, ip := range ips {
+		if ip.To4() == nil {
+			prefix := ip[:12]
+			if bytes.Count(prefix, zero) < 12 {
+				nat64PrefixMx.Lock()
+				nat64Prefix = prefix
+				nat64PrefixMx.Unlock()
+				return
 			}
 		}
-
-		nat64PrefixMx.Lock()
-		nat64Prefix = nil
-		nat64PrefixMx.Unlock()
 	}
+
+	nat64PrefixMx.Lock()
+	nat64Prefix = nil
+	nat64PrefixMx.Unlock()
 }
 
 func refreshNAT64Prefix() {
@@ -186,21 +190,64 @@ func OverrideListenUDP(listenFN func(network string, laddr *net.UDPAddr) (*net.U
 
 // Resolve resolves the given tcp address using the configured resolve function.
 func Resolve(network string, addr string) (*net.TCPAddr, error) {
-	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		break
+	case "":
+		network = "tcp"
+	default:
+		return nil, errors.New("Unsupported network: %v", network)
+	}
+
+	ip, port, err := resolve(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.TCPAddr{IP: ip, Port: port}, nil
 }
 
 func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
-	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
+	switch network {
+	case "udp", "udp4", "udp6":
+		break
+	case "":
+		network = "udp"
+	default:
+		return nil, errors.New("Unsupported network: %v", network)
+	}
+
+	ip, port, err := resolve(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.UDPAddr{IP: ip, Port: port}, nil
 }
 
-// OverrideResolve overrides the global resolve function.
-func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, error)) {
-	resolveTCPAddr.Store(resolveFN)
+func resolve(addr string) (net.IP, int, error) {
+	host, _port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, 0, errors.New("Unable to parse addr %v: %v", addr, err)
+	}
+	port, err := strconv.Atoi(_port)
+	if err != nil {
+		return nil, 0, errors.New("Unable to convert port %v to integer: %v", _port, err)
+	}
+	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))(host)
+	if err != nil {
+		return nil, 0, errors.New("Unable to resolve IP for %v: %v", host, err)
+	}
+	ip, err := pickRandomIP(ips)
+	if err != nil {
+		return nil, 0, err
+	}
+	return ip, port, nil
 }
 
-// OverrideResolveUDP overrides the global resolveUDP function.
-func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
-	resolveUDPAddr.Store(resolveFN)
+// OverrideResolveIPs overrides the global IP resolution function.
+func OverrideResolveIPs(resolveFN func(host string) ([]net.IP, error)) {
+	resolveIPs.Store(resolveFN)
 }
 
 // Reset resets netx to its default settings
@@ -209,6 +256,13 @@ func Reset() {
 	OverrideDial(d.DialContext)
 	OverrideDialUDP(net.DialUDP)
 	OverrideListenUDP(net.ListenUDP)
-	OverrideResolve(net.ResolveTCPAddr)
-	OverrideResolveUDP(net.ResolveUDPAddr)
+	OverrideResolveIPs(net.LookupIP)
+}
+
+func pickRandomIP(ips []net.IP) (net.IP, error) {
+	length := len(ips)
+	if length < 1 {
+		return nil, errors.New("no IP address")
+	}
+	return ips[rand.Intn(length)], nil
 }
