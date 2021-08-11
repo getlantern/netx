@@ -118,6 +118,8 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	// if we are not dialing an explicitly ipv4 network and we got ENETUNREACH - try applying DNS64 prefix
 	if err != nil {
 		log.Errorf("error dialing (%v) %v: %v", network, addr, err)
+	} else {
+		log.Debugf("successfully dialed (%v) %v", network, addr)
 	}
 	if !ipv4Network && isNetworkUnreachable(err) {
 		nat64Addr := convertAddressDNS64(addr)
