@@ -3,59 +3,106 @@
 package netx
 
 import (
+	"bytes"
 	"context"
+	"math/rand"
 	"net"
-	"strings"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/getlantern/errors"
+	"github.com/getlantern/golog"
+	"github.com/getlantern/iptool"
 )
 
 var (
-	dial               atomic.Value
-	dialUDP            atomic.Value
-	listenUDP          atomic.Value
-	resolveTCPAddr     atomic.Value
-	resolveUDPAddr     atomic.Value
-	NAT64Prefix        atomic.Value
-	defaultDialTimeout = 1 * time.Minute
+	log = golog.LoggerFor("netx")
+)
+
+var (
+	dial                  atomic.Value
+	dialUDP               atomic.Value
+	listenUDP             atomic.Value
+	resolveIPs            atomic.Value
+	enableNAT64Once       sync.Once
+	nat64Prefix           []byte
+	nat64PrefixMx         sync.RWMutex
+	updateNAT64PrefixCh   = make(chan interface{}, 1)
+	defaultDialTimeout    = 1 * time.Minute
+	minNAT64QueryInterval = 10 * time.Second
+	zero                  = []byte{0}
+	ipt                   iptool.Tool
 )
 
 func init() {
+	ipt, _ = iptool.New()
 	Reset()
 }
 
-type NAT64PrefixHolder struct {
-	expiration time.Time
-	prefix     []byte
+// EnableNAT64 enables automatic discovery of NAT64 prefix using DNS query for ipv4only.arpa.
+// Once enabled, netx will automatically dial IPv4 addresses via IPv6 using this prefix
+// if it is available
+func EnableNAT64AutoDiscovery() {
+	enableNAT64Once.Do(func() {
+		log.Debug("Enabling NAT64 auto-discovery")
+		go func() {
+			var priorNAT64Prefix []byte
+			for {
+				log.Debugf("Checking for updated NAT64 prefix")
+				updateNAT64Prefix()
+				nextNAT64Prefix := getNAT64Prefix()
+				if !bytes.Equal(priorNAT64Prefix, nextNAT64Prefix) {
+					log.Debugf("NAT64 prefix changed from %v to %v", priorNAT64Prefix, nextNAT64Prefix)
+					priorNAT64Prefix = nextNAT64Prefix
+				}
+				// Don't updat NAT64 prefix too often
+				time.Sleep(minNAT64QueryInterval)
+				// Only update NAT64 Prefix again if it's necessary
+				<-updateNAT64PrefixCh
+			}
+		}()
+	})
 }
 
-func ResetNAT64Prefix() {
-	NAT64Prefix.Store(nil)
+func updateNAT64Prefix() {
+	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))("ipv4only.arpa")
+	if err != nil {
+		log.Errorf("Error checking for updated nat64 prefix: %v", err)
+		return
+	}
+	for _, ip := range ips {
+		if ip.To4() == nil {
+			prefix := ip[:12]
+			if bytes.Count(prefix, zero) < 12 {
+				nat64PrefixMx.Lock()
+				nat64Prefix = prefix
+				nat64PrefixMx.Unlock()
+				return
+			}
+		}
+	}
+
+	nat64PrefixMx.Lock()
+	nat64Prefix = nil
+	nat64PrefixMx.Unlock()
+}
+
+func refreshNAT64Prefix() {
+	select {
+	case updateNAT64PrefixCh <- nil:
+		// requested refresh of NAT64 prefx
+	default:
+		// refresh already pending
+	}
 }
 
 // getNAT64Prefix returns previously fetched ipv6 prefix, or gets a fresh one using DNS lookup
 func getNAT64Prefix() []byte {
-	if holder, ok := NAT64Prefix.Load().(*NAT64PrefixHolder); holder != nil && ok {
-		if time.Now().Before(holder.expiration) {
-			return holder.prefix
-		}
-	}
-	ips, err := net.LookupIP("ipv4only.arpa")
-	if err == nil {
-		for _, ip := range ips {
-			if ip.To4() == nil {
-				prefix := ip[:12]
-				NAT64Prefix.Store(&NAT64PrefixHolder{prefix: prefix, expiration: time.Now().Add(time.Hour * 1)})
-				return prefix
-			}
-		}
-	}
-	return nil
-}
-
-// isNetworkUnreachable checks if the error matches string representation of ENETUNREACH
-func isNetworkUnreachable(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "unreachable")
+	nat64PrefixMx.RLock()
+	defer nat64PrefixMx.RUnlock()
+	return nat64Prefix
 }
 
 // convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
@@ -66,6 +113,12 @@ func convertAddressDNS64(addr string) string {
 	}
 	ip := net.ParseIP(host)
 	if ip.To4() == nil { // if it's ipv6 already - don't do anything
+		return addr
+	}
+	if ipt.IsPrivate(&net.IPAddr{
+		IP: ip,
+	}) {
+		// don't mess with private IP addresses
 		return addr
 	}
 	prefix := getNAT64Prefix()
@@ -100,14 +153,17 @@ func DialTimeout(network string, addr string, timeout time.Duration) (net.Conn, 
 // DialContext dials the given addr on the given net type using the configured
 // dial function, with the given context.
 func DialContext(ctx context.Context, network string, addr string) (net.Conn, error) {
+	// always convert IPv4 addresses to use a NAT64 prefix if we're on a NAT64 network
+	// if EnableNAT64Autodiscovery hasn't been called, if addr is an IPv6 address, if
+	// addr is a local address or if we haven't autodiscovered a NAT64 prefix, this is a
+	// no-op.
+	addr = convertAddressDNS64(addr)
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
-
 	conn, err := dialer(ctx, network, addr)
-	ipv4Network := network == "udp4" || network == "tcp4"
-	// if we are not dialing an explicitly ipv4 network and we got ENETUNREACH - try applying DNS64 prefix
-	if !ipv4Network && isNetworkUnreachable(err) {
-		addr = convertAddressDNS64(addr)
-		conn, err = dialer(ctx, network, addr)
+	if err != nil {
+		// error might be because we're now on a NAT64 network (or a different NAT64 network)
+		// request a refresh of the NAT64 prefix
+		refreshNAT64Prefix()
 	}
 	return conn, err
 }
@@ -134,21 +190,64 @@ func OverrideListenUDP(listenFN func(network string, laddr *net.UDPAddr) (*net.U
 
 // Resolve resolves the given tcp address using the configured resolve function.
 func Resolve(network string, addr string) (*net.TCPAddr, error) {
-	return resolveTCPAddr.Load().(func(string, string) (*net.TCPAddr, error))(network, addr)
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		break
+	case "":
+		network = "tcp"
+	default:
+		return nil, errors.New("Unsupported network: %v", network)
+	}
+
+	ip, port, err := resolve(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.TCPAddr{IP: ip, Port: port}, nil
 }
 
 func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
-	return resolveUDPAddr.Load().(func(string, string) (*net.UDPAddr, error))(network, addr)
+	switch network {
+	case "udp", "udp4", "udp6":
+		break
+	case "":
+		network = "udp"
+	default:
+		return nil, errors.New("Unsupported network: %v", network)
+	}
+
+	ip, port, err := resolve(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &net.UDPAddr{IP: ip, Port: port}, nil
 }
 
-// OverrideResolve overrides the global resolve function.
-func OverrideResolve(resolveFN func(net string, addr string) (*net.TCPAddr, error)) {
-	resolveTCPAddr.Store(resolveFN)
+func resolve(addr string) (net.IP, int, error) {
+	host, _port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, 0, errors.New("Unable to parse addr %v: %v", addr, err)
+	}
+	port, err := strconv.Atoi(_port)
+	if err != nil {
+		return nil, 0, errors.New("Unable to convert port %v to integer: %v", _port, err)
+	}
+	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))(host)
+	if err != nil {
+		return nil, 0, errors.New("Unable to resolve IP for %v: %v", host, err)
+	}
+	ip, err := pickRandomIP(ips)
+	if err != nil {
+		return nil, 0, err
+	}
+	return ip, port, nil
 }
 
-// OverrideResolveUDP overrides the global resolveUDP function.
-func OverrideResolveUDP(resolveFN func(net string, addr string) (*net.UDPAddr, error)) {
-	resolveUDPAddr.Store(resolveFN)
+// OverrideResolveIPs overrides the global IP resolution function.
+func OverrideResolveIPs(resolveFN func(host string) ([]net.IP, error)) {
+	resolveIPs.Store(resolveFN)
 }
 
 // Reset resets netx to its default settings
@@ -157,6 +256,13 @@ func Reset() {
 	OverrideDial(d.DialContext)
 	OverrideDialUDP(net.DialUDP)
 	OverrideListenUDP(net.ListenUDP)
-	OverrideResolve(net.ResolveTCPAddr)
-	OverrideResolveUDP(net.ResolveUDPAddr)
+	OverrideResolveIPs(net.LookupIP)
+}
+
+func pickRandomIP(ips []net.IP) (net.IP, error) {
+	length := len(ips)
+	if length < 1 {
+		return nil, errors.New("no IP address")
+	}
+	return ips[rand.Intn(length)], nil
 }
