@@ -199,7 +199,7 @@ func Resolve(network string, addr string) (*net.TCPAddr, error) {
 		return nil, errors.New("Unsupported network: %v", network)
 	}
 
-	ip, port, err := resolve(addr)
+	ip, port, err := resolve(network, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
 		return nil, errors.New("Unsupported network: %v", network)
 	}
 
-	ip, port, err := resolve(addr)
+	ip, port, err := resolve(network, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func ResolveUDPAddr(network string, addr string) (*net.UDPAddr, error) {
 	return &net.UDPAddr{IP: ip, Port: port}, nil
 }
 
-func resolve(addr string) (net.IP, int, error) {
+func resolve(network, addr string) (net.IP, int, error) {
 	host, _port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, 0, errors.New("Unable to parse addr %v: %v", addr, err)
@@ -237,6 +237,15 @@ func resolve(addr string) (net.IP, int, error) {
 	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))(host)
 	if err != nil {
 		return nil, 0, errors.New("Unable to resolve IP for %v: %v", host, err)
+	}
+	switch network {
+	case "tcp4", "udp4":
+		ips = ipv4Only(ips)
+	case "tcp6", "udp6":
+		ips = ipv6Only(ips)
+	}
+	if len(ips) == 0 {
+		return nil, 0, errors.New("unable to resolve IP for %v (%v): %v", host, network, err)
 	}
 	ip, err := pickRandomIP(ips)
 	if err != nil {
@@ -265,4 +274,24 @@ func pickRandomIP(ips []net.IP) (net.IP, error) {
 		return nil, errors.New("no IP address")
 	}
 	return ips[rand.Intn(length)], nil
+}
+
+func filterIPs(ips []net.IP, predicate func(net.IP) bool) []net.IP {
+	filtered := []net.IP{}
+	for _, ip := range ips {
+		if predicate(ip) {
+			filtered = append(filtered, ip)
+		}
+	}
+	return filtered
+}
+
+func ipv4Only(ips []net.IP) []net.IP {
+	// n.b. Per doc, To4 returns nil if ip is not an IPv4 address.
+	return filterIPs(ips, func(ip net.IP) bool { return ip.To4() != nil })
+}
+
+func ipv6Only(ips []net.IP) []net.IP {
+	// n.b. Per doc, To4 returns nil if ip is not an IPv4 address.
+	return filterIPs(ips, func(ip net.IP) bool { return ip.To4() == nil })
 }
