@@ -243,6 +243,12 @@ func resolve(network, addr string) (net.IP, int, error) {
 		ips = ipv4Only(ips)
 	case "tcp6", "udp6":
 		ips = ipv6Only(ips)
+	case "tcp", "udp":
+		if host == "localhost" {
+			// Go servers on localhost will serve over IPv4 only. It's not guaranteed that we
+			// we are resolving a Go server, but it's most likely. IPv4 will likely work anyway.
+			ips = ipv4Only(ips)
+		}
 	}
 	if len(ips) == 0 {
 		return nil, 0, errors.New("unable to resolve IP for %v (%v): %v", host, network, err)
