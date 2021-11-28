@@ -76,6 +76,15 @@ func updateNAT64Prefix() {
 		if ip.To4() == nil {
 			prefix := ip[:12]
 			if bytes.Count(prefix, zero) < 12 {
+				// before setting new prefix, test it for validity by trying to dial 1.1.1.1
+				addr := convertAddressDNS64(prefix, "1.1.1.1:53")
+				timeOut := 1 * time.Second
+				conn, err := net.DialTimeout("tcp", addr, timeOut)
+				if err != nil {
+					// if we can't dial, we don't trust the prefix
+					continue
+				}
+				_ = conn.Close()
 				nat64PrefixMx.Lock()
 				nat64Prefix = prefix
 				nat64PrefixMx.Unlock()
@@ -106,7 +115,10 @@ func getNAT64Prefix() []byte {
 }
 
 // convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
-func convertAddressDNS64(addr string) string {
+func convertAddressDNS64(prefix []byte, addr string) string {
+	if prefix == nil {
+		return addr
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
@@ -119,10 +131,6 @@ func convertAddressDNS64(addr string) string {
 		IP: ip,
 	}) {
 		// don't mess with private IP addresses
-		return addr
-	}
-	prefix := getNAT64Prefix()
-	if prefix == nil {
 		return addr
 	}
 	ipv6 := ip.To16()
@@ -157,7 +165,8 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	// if EnableNAT64Autodiscovery hasn't been called, if addr is an IPv6 address, if
 	// addr is a local address or if we haven't autodiscovered a NAT64 prefix, this is a
 	// no-op.
-	addr = convertAddressDNS64(addr)
+	prefix := getNAT64Prefix()
+	addr = convertAddressDNS64(prefix, addr)
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
 	conn, err := dialer(ctx, network, addr)
 	if err != nil {
