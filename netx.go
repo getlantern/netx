@@ -243,6 +243,15 @@ func resolve(network, addr string) (net.IP, int, error) {
 		ips = ipv4Only(ips)
 	case "tcp6", "udp6":
 		ips = ipv6Only(ips)
+	case "tcp", "udp":
+		// When the IP version is ambiguous, we prefer IPv4. This is the same choice that Go's net
+		// package makes. Note that localhost can be a special case: for most hosts, the IPv6
+		// address will still reach the server. This is often not the case for localhost; a local
+		// server is likely to only listen over IPv4, but DNS will resolve both the IPv4 and IPv6
+		// addresses. In this case, it can be especially important to prefer IPv4.
+		if ipv4s := ipv4Only(ips); len(ipv4s) > 0 {
+			ips = ipv4s
+		}
 	}
 	if len(ips) == 0 {
 		return nil, 0, errors.New("unable to resolve IP for %v (%v): %v", host, network, err)
