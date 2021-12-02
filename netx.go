@@ -69,22 +69,13 @@ func EnableNAT64AutoDiscovery() {
 func updateNAT64Prefix() {
 	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))("ipv4only.arpa")
 	if err != nil {
-		log.Errorf("Error checking for updated nat64 prefix: %v", err)
+		_ = log.Errorf("Error checking for updated nat64 prefix: %v", err)
 		return
 	}
 	for _, ip := range ips {
 		if ip.To4() == nil {
 			prefix := ip[:12]
 			if bytes.Count(prefix, zero) < 12 {
-				// before setting new prefix, test it for validity by trying to dial 1.1.1.1
-				addr := convertAddressDNS64(prefix, "1.1.1.1:53")
-				timeOut := 1 * time.Second
-				conn, err := net.DialTimeout("tcp", addr, timeOut)
-				if err != nil {
-					// if we can't dial, we don't trust the prefix
-					continue
-				}
-				_ = conn.Close()
 				nat64PrefixMx.Lock()
 				nat64Prefix = prefix
 				nat64PrefixMx.Unlock()
@@ -166,13 +157,21 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	// addr is a local address or if we haven't autodiscovered a NAT64 prefix, this is a
 	// no-op.
 	prefix := getNAT64Prefix()
-	addr = convertAddressDNS64(prefix, addr)
+	addrWithPrefix := convertAddressDNS64(prefix, addr)
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
-	conn, err := dialer(ctx, network, addr)
+	conn, err := dialer(ctx, network, addrWithPrefix)
 	if err != nil {
-		// error might be because we're now on a NAT64 network (or a different NAT64 network)
-		// request a refresh of the NAT64 prefix
-		refreshNAT64Prefix()
+		// we might have a prefix but no ipv6 connectivity, so try ipv4 as fallback
+		if prefix != nil {
+			conn, err = dialer(ctx, network, addr)
+		}
+		// if we still can't connect, return the error, but also trigger a refresh of the prefix
+		if err != nil {
+			// error might be because we're now on a NAT64 network (or a different NAT64 network)
+			// request a refresh of the NAT64 prefix
+			refreshNAT64Prefix()
+		}
+
 	}
 	return conn, err
 }
