@@ -69,7 +69,7 @@ func EnableNAT64AutoDiscovery() {
 func updateNAT64Prefix() {
 	ips, err := resolveIPs.Load().(func(string) ([]net.IP, error))("ipv4only.arpa")
 	if err != nil {
-		log.Errorf("Error checking for updated nat64 prefix: %v", err)
+		_ = log.Errorf("Error checking for updated nat64 prefix: %v", err)
 		return
 	}
 	for _, ip := range ips {
@@ -106,7 +106,10 @@ func getNAT64Prefix() []byte {
 }
 
 // convertAddressDNS64 takes the IP address, converts it to ipv6 and applies DNS64 prefix
-func convertAddressDNS64(addr string) string {
+func convertAddressDNS64(prefix []byte, addr string) string {
+	if prefix == nil {
+		return addr
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
@@ -119,10 +122,6 @@ func convertAddressDNS64(addr string) string {
 		IP: ip,
 	}) {
 		// don't mess with private IP addresses
-		return addr
-	}
-	prefix := getNAT64Prefix()
-	if prefix == nil {
 		return addr
 	}
 	ipv6 := ip.To16()
@@ -157,13 +156,22 @@ func DialContext(ctx context.Context, network string, addr string) (net.Conn, er
 	// if EnableNAT64Autodiscovery hasn't been called, if addr is an IPv6 address, if
 	// addr is a local address or if we haven't autodiscovered a NAT64 prefix, this is a
 	// no-op.
-	addr = convertAddressDNS64(addr)
+	prefix := getNAT64Prefix()
+	addrWithPrefix := convertAddressDNS64(prefix, addr)
 	dialer := dial.Load().(func(context.Context, string, string) (net.Conn, error))
-	conn, err := dialer(ctx, network, addr)
+	conn, err := dialer(ctx, network, addrWithPrefix)
 	if err != nil {
-		// error might be because we're now on a NAT64 network (or a different NAT64 network)
-		// request a refresh of the NAT64 prefix
-		refreshNAT64Prefix()
+		// we might have a prefix but no ipv6 connectivity, so try ipv4 as fallback
+		if prefix != nil {
+			conn, err = dialer(ctx, network, addr)
+		}
+		// if we still can't connect, return the error, but also trigger a refresh of the prefix
+		if err != nil {
+			// error might be because we're now on a NAT64 network (or a different NAT64 network)
+			// request a refresh of the NAT64 prefix
+			refreshNAT64Prefix()
+		}
+
 	}
 	return conn, err
 }
