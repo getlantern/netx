@@ -13,8 +13,6 @@ github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 h1:micT5vkcr9tOVk1F
 github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7/go.mod h1:dD3CgOrwlzca8ed61CsZouQS5h5jIzkK9ZWrTcf0s+o=
 github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 h1:XYzSdCbkzOC0FDNrgJqGRo8PCMFOBFL9py72DRs7bmc=
 github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55/go.mod h1:6mmzY2kW1TOOrVy+r41Za2MxXM+hhqTtY3oBKd2AgFA=
-github.com/getlantern/iptool v0.0.0-20210721034953-519bf8ce0147 h1:/4ibPEIbC7c786Ec5Z8QqTti8MAjjTp/LmfuF6frVDM=
-github.com/getlantern/iptool v0.0.0-20210721034953-519bf8ce0147/go.mod h1:hfspzdRcvJ130tpTPL53/L92gG0pFtvQ6ln35ppwhHE=
 github.com/getlantern/mockconn v0.0.0-20200818071412-cb30d065a848 h1:2MhMMVBTnaHrst6HyWFDhwQCaJ05PZuOv1bE2gN8WFY=
 github.com/getlantern/mockconn v0.0.0-20200818071412-cb30d065a848/go.mod h1:+F5GJ7qGpQ03DBtcOEyQpM30ix4BLswdaojecFtsdy8=
 github.com/getlantern/mtime v0.0.0-20200417132445-23682092d1f7 h1:03J6Cb42EG06lHgpOFGm5BOax4qFqlSbSeKO2RGrj2g=
