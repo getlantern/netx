@@ -1,12 +1,11 @@
 module github.com/getlantern/netx
 
-go 1.21.4
+go 1.24
 
 require (
 	github.com/getlantern/errors v1.0.3
 	github.com/getlantern/fdcount v0.0.0-20190912142506-f89afd7367c4
 	github.com/getlantern/golog v0.0.0-20230503153817-8e72de7e0a65
-	github.com/getlantern/iptool v0.0.0-20230112135223-c00e863b2696
 	github.com/getlantern/mockconn v0.0.0-20200818071412-cb30d065a848
 	github.com/stretchr/testify v1.8.4
 )

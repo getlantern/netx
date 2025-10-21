@@ -14,7 +14,6 @@ import (
 
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/iptool"
 )
 
 var (
@@ -33,11 +32,9 @@ var (
 	defaultDialTimeout    = 1 * time.Minute
 	minNAT64QueryInterval = 10 * time.Second
 	zero                  = []byte{0}
-	ipt                   iptool.Tool
 )
 
 func init() {
-	ipt, _ = iptool.New()
 	Reset()
 }
 
@@ -118,12 +115,11 @@ func convertAddressDNS64(prefix []byte, addr string) string {
 	if ip.To4() == nil { // if it's ipv6 already - don't do anything
 		return addr
 	}
-	if ipt.IsPrivate(&net.IPAddr{
-		IP: ip,
-	}) {
+	if ip.IsPrivate() {
 		// don't mess with private IP addresses
 		return addr
 	}
+
 	ipv6 := ip.To16()
 	copy(ipv6[:12], prefix)
 	return net.JoinHostPort(ipv6.String(), port)
